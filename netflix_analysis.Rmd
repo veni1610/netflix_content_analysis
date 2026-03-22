@@ -1,0 +1,185 @@
+---
+title: "Netflix Content Analysis"
+author: "Veni_Neha_Minha_Niyukta"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    theme: darkly
+    toc: true
+    toc_float: true
+    code_folding: hide
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=TRUE, message=FALSE, warning=FALSE,
+                      fig.width=10, fig.height=6, fig.align="center")
+```
+```{r}
+options(repos = c(CRAN = "https://cran.rstudio.com/"))
+
+pkgs <- c("ggplot2","dplyr","tidyr","stringr","scales")
+for(p in pkgs){
+  if(!requireNamespace(p, quietly=TRUE)) install.packages(p)
+  library(p, character.only=TRUE)
+}
+```
+```{r}
+titles  <- read.csv("titles.csv",  stringsAsFactors=FALSE, na.strings=c("","NA"))
+credits <- read.csv("credits.csv", stringsAsFactors=FALSE, na.strings=c("","NA"))
+cat("Titles:", nrow(titles), "\nCredits:", nrow(credits))
+head(titles[, c("title","type","release_year","genres","imdb_score")], 5)
+```
+```{r}
+titles$genres <- gsub("\\[|\\]|\\'", "", titles$genres)
+titles$production_countries <- gsub("\\[|\\]|\\'", "", titles$production_countries)
+titles <- titles %>% filter(type %in% c("MOVIE","SHOW"), !is.na(title))
+cat("After cleaning:", nrow(titles), "titles\n")
+```
+```{r}
+type_count <- titles %>%
+  count(type) %>%
+  mutate(pct=n/sum(n),
+         label=paste0(type,"\n",scales::comma(n),"\n(",scales::percent(pct,accuracy=1),")"))
+
+ggplot(type_count, aes(x="", y=n, fill=type)) +
+  geom_col(width=1, color="white") +
+  coord_polar(theta="y") +
+  geom_text(aes(label=label), position=position_stack(vjust=0.5),
+            size=5, fontface="bold", color="white") +
+  scale_fill_manual(values=c("MOVIE"="#E50914","SHOW"="#221F1F")) +
+  labs(title="Movies vs TV Shows on Netflix") +
+  theme_void() +
+  theme(plot.title=element_text(face="bold",size=18,hjust=0.5,color="#E50914"),
+        legend.position="none")
+```
+```{r}
+genres_df <- titles %>%
+  filter(!is.na(genres), genres!="") %>%
+  separate_rows(genres, sep=",") %>%
+  mutate(genres=stringr::str_trim(genres)) %>%
+  filter(genres!="") %>%
+  count(genres, sort=TRUE) %>%
+  slice_head(n=15)
+
+ggplot(genres_df, aes(x=reorder(genres,n), y=n, fill=n)) +
+  geom_col(width=0.75, show.legend=FALSE) +
+  geom_text(aes(label=n), hjust=-0.15, size=4, fontface="bold") +
+  coord_flip() +
+  scale_fill_gradient(low="#FF6B6B", high="#E50914") +
+  scale_y_continuous(expand=expansion(mult=c(0,0.15))) +
+  labs(title="Top 15 Genres on Netflix", x=NULL, y="Number of Titles") +
+  theme_minimal(base_size=13) +
+  theme(plot.title=element_text(face="bold",size=17,color="#E50914"),
+        panel.grid.major.y=element_blank())
+```
+```{r}
+year_df <- titles %>%
+  filter(!is.na(release_year), release_year>=2000, release_year<=2023) %>%
+  count(release_year, type)
+
+ggplot(year_df, aes(x=release_year, y=n, color=type, group=type)) +
+  geom_line(linewidth=1.3) +
+  geom_point(size=2.5) +
+  scale_color_manual(values=c("MOVIE"="#E50914","SHOW"="#F5A623")) +
+  scale_x_continuous(breaks=seq(2000,2023,2)) +
+  labs(title="Content Released Per Year (2000-2023)",
+       x="Year", y="Number of Titles", color="Type") +
+  theme_minimal(base_size=13) +
+  theme(plot.title=element_text(face="bold",size=17,color="#E50914"),
+        legend.position="top")
+```
+```{r}
+countries_df <- titles %>%
+  filter(!is.na(production_countries), production_countries!="") %>%
+  separate_rows(production_countries, sep=",") %>%
+  mutate(production_countries=stringr::str_trim(production_countries)) %>%
+  filter(production_countries!="") %>%
+  count(production_countries, sort=TRUE) %>%
+  slice_head(n=15)
+
+ggplot(countries_df, aes(x=reorder(production_countries,n), y=n, fill=n)) +
+  geom_col(width=0.7, show.legend=FALSE) +
+  geom_text(aes(label=n), hjust=-0.15, size=4, fontface="bold") +
+  coord_flip() +
+  scale_fill_gradient(low="#FFC3C3", high="#E50914") +
+  scale_y_continuous(expand=expansion(mult=c(0,0.15))) +
+  labs(title="Top 15 Countries Producing Netflix Content", x=NULL, y="Titles") +
+  theme_minimal(base_size=13) +
+  theme(plot.title=element_text(face="bold",size=17,color="#E50914"),
+        panel.grid.major.y=element_blank())
+```
+```{r}
+imdb_df <- titles %>% filter(!is.na(imdb_score), imdb_score>0)
+
+ggplot(imdb_df, aes(x=imdb_score, fill=type)) +
+  geom_histogram(binwidth=0.5, color="white", alpha=0.85, position="identity") +
+  geom_vline(xintercept=median(imdb_df$imdb_score),
+             color="yellow", linetype="dashed", linewidth=1) +
+  scale_fill_manual(values=c("MOVIE"="#E50914","SHOW"="#F5A623")) +
+  scale_x_continuous(breaks=1:10) +
+  labs(title="IMDB Score Distribution", x="IMDB Score", y="Count", fill="Type") +
+  theme_minimal(base_size=13) +
+  theme(plot.title=element_text(face="bold",size=17,color="#E50914"),
+        legend.position="top")
+```
+```{r}
+top_actors <- credits %>%
+  filter(role=="ACTOR", !is.na(name)) %>%
+  count(name, sort=TRUE) %>%
+  slice_head(n=15)
+
+ggplot(top_actors, aes(x=reorder(name,n), y=n, fill=n)) +
+  geom_col(width=0.7, show.legend=FALSE) +
+  geom_text(aes(label=n), hjust=-0.2, size=4, fontface="bold") +
+  coord_flip() +
+  scale_fill_gradient(low="#FFC3C3", high="#E50914") +
+  scale_y_continuous(expand=expansion(mult=c(0,0.15))) +
+  labs(title="Top 15 Most Featured Actors", x=NULL, y="Titles") +
+  theme_minimal(base_size=13) +
+  theme(plot.title=element_text(face="bold",size=17,color="#E50914"),
+        panel.grid.major.y=element_blank())
+```
+```{r}
+top_directors <- credits %>%
+  filter(role=="DIRECTOR", !is.na(name)) %>%
+  count(name, sort=TRUE) %>%
+  slice_head(n=15)
+
+ggplot(top_directors, aes(x=reorder(name,n), y=n, fill=n)) +
+  geom_col(width=0.7, show.legend=FALSE) +
+  geom_text(aes(label=n), hjust=-0.2, size=4, fontface="bold") +
+  coord_flip() +
+  scale_fill_gradient(low="#FFD580", high="#F5A623") +
+  scale_y_continuous(expand=expansion(mult=c(0,0.15))) +
+  labs(title="Top 15 Most Active Directors", x=NULL, y="Titles") +
+  theme_minimal(base_size=13) +
+  theme(plot.title=element_text(face="bold",size=17,color="#E50914"),
+        panel.grid.major.y=element_blank())
+```
+```{r}
+rating_df <- titles %>%
+  filter(!is.na(age_certification), age_certification!="") %>%
+  count(age_certification, type)
+
+ggplot(rating_df, aes(x=reorder(age_certification,n), y=n, fill=type)) +
+  geom_col(position="dodge", width=0.65) +
+  geom_text(aes(label=n), position=position_dodge(width=0.65),
+            vjust=-0.4, size=3.5, fontface="bold") +
+  scale_fill_manual(values=c("MOVIE"="#E50914","SHOW"="#F5A623")) +
+  scale_y_continuous(expand=expansion(mult=c(0,0.15))) +
+  labs(title="Content by Age Rating", x="Rating", y="Titles", fill="Type") +
+  theme_minimal(base_size=13) +
+  theme(plot.title=element_text(face="bold",size=17,color="#E50914"),
+        legend.position="top")
+```
+```{r}
+titles %>%
+  group_by(type) %>%
+  summarise(
+    Count       = n(),
+    Avg_IMDB    = round(mean(imdb_score, na.rm=TRUE), 2),
+    Median_IMDB = round(median(imdb_score, na.rm=TRUE), 2),
+    Earliest    = min(release_year, na.rm=TRUE),
+    Latest      = max(release_year, na.rm=TRUE)
+  ) %>%
+  knitr::kable(caption="Summary by Content Type")
+```
