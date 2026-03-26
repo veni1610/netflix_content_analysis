@@ -11,34 +11,87 @@ output:
 ---
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo=TRUE, message=FALSE, warning=FALSE,
-                      fig.width=10, fig.height=6, fig.align="center")
+                      fig.width=9, fig.height=5, fig.align="center")
 ```
+
+---
+
+## 1. Load Packages
 ```{r}
 options(repos = c(CRAN = "https://cran.rstudio.com/"))
-
 pkgs <- c("ggplot2","dplyr","tidyr","stringr","scales")
 for(p in pkgs){
   if(!requireNamespace(p, quietly=TRUE)) install.packages(p)
   library(p, character.only=TRUE)
 }
 ```
+
+---
+
+## 2. Load Data
 ```{r}
 titles  <- read.csv("titles.csv",  stringsAsFactors=FALSE, na.strings=c("","NA"))
 credits <- read.csv("credits.csv", stringsAsFactors=FALSE, na.strings=c("","NA"))
-cat("Titles:", nrow(titles), "\nCredits:", nrow(credits))
-head(titles[, c("title","type","release_year","genres","imdb_score")], 5)
+
+cat("Titles:", nrow(titles), "\n")
+cat("Credits:", nrow(credits), "\n")
+head(titles[, c("title","type","release_year","genres","imdb_score","age_certification")], 5)
 ```
+
+---
+
+## 3. Preprocessing
 ```{r}
+# Check missing values
+cat("Missing values:\n")
+colSums(is.na(titles[, c("imdb_score","age_certification","genres","production_countries")]))
+
+# Fill missing values
+titles$imdb_score[is.na(titles$imdb_score)] <- median(titles$imdb_score, na.rm=TRUE)
+titles$age_certification[is.na(titles$age_certification)] <- "Not Rated"
+
+# Clean genres and countries columns
 titles$genres <- gsub("\\[|\\]|\\'", "", titles$genres)
 titles$production_countries <- gsub("\\[|\\]|\\'", "", titles$production_countries)
+
+# Keep only MOVIE and SHOW
 titles <- titles %>% filter(type %in% c("MOVIE","SHOW"), !is.na(title))
-cat("After cleaning:", nrow(titles), "titles\n")
+
+cat("\nAfter cleaning:", nrow(titles), "titles\n")
+cat("Missing imdb_score now:", sum(is.na(titles$imdb_score)), "\n")
 ```
+
+---
+
+## 4. Summary Statistics
+```{r}
+summary(titles[, c("imdb_score","release_year")])
+
+titles %>%
+  group_by(type) %>%
+  summarise(
+    Count       = n(),
+    Mean_IMDB   = round(mean(imdb_score, na.rm=TRUE), 2),
+    Median_IMDB = round(median(imdb_score, na.rm=TRUE), 2),
+    SD_IMDB     = round(sd(imdb_score, na.rm=TRUE), 2),
+    Min_IMDB    = min(imdb_score, na.rm=TRUE),
+    Max_IMDB    = max(imdb_score, na.rm=TRUE)
+  ) %>%
+  knitr::kable(caption="Summary Statistics by Content Type")
+```
+
+**Conclusion:**
+Movies and TV Shows differ in their average IMDB scores. The table above
+shows the spread and central tendency of ratings across both content types.
+
+---
+
+## 5. Movies vs Shows
 ```{r}
 type_count <- titles %>%
   count(type) %>%
-  mutate(pct=n/sum(n),
-         label=paste0(type,"\n",scales::comma(n),"\n(",scales::percent(pct,accuracy=1),")"))
+  mutate(pct   = n/sum(n),
+         label = paste0(type,"\n",comma(n),"\n(",percent(pct,accuracy=1),")"))
 
 ggplot(type_count, aes(x="", y=n, fill=type)) +
   geom_col(width=1, color="white") +
@@ -48,65 +101,98 @@ ggplot(type_count, aes(x="", y=n, fill=type)) +
   scale_fill_manual(values=c("MOVIE"="#E50914","SHOW"="#221F1F")) +
   labs(title="Movies vs TV Shows on Netflix") +
   theme_void() +
-  theme(plot.title=element_text(face="bold",size=18,hjust=0.5,color="#E50914"),
+  theme(plot.title=element_text(face="bold",size=16,hjust=0.5,color="#E50914"),
         legend.position="none")
 ```
+
+**Conclusion:**
+Netflix has significantly more Movies than TV Shows. This shows that Netflix
+built its library primarily around films before expanding into original series.
+
+---
+
+## 6. Top Genres
 ```{r}
 genres_df <- titles %>%
   filter(!is.na(genres), genres!="") %>%
   separate_rows(genres, sep=",") %>%
-  mutate(genres=stringr::str_trim(genres)) %>%
+  mutate(genres=str_trim(genres)) %>%
   filter(genres!="") %>%
   count(genres, sort=TRUE) %>%
   slice_head(n=15)
 
 ggplot(genres_df, aes(x=reorder(genres,n), y=n, fill=n)) +
-  geom_col(width=0.75, show.legend=FALSE) +
-  geom_text(aes(label=n), hjust=-0.15, size=4, fontface="bold") +
+  geom_col(show.legend=FALSE) +
+  geom_text(aes(label=n), hjust=-0.15, size=3.5, fontface="bold") +
   coord_flip() +
   scale_fill_gradient(low="#FF6B6B", high="#E50914") +
   scale_y_continuous(expand=expansion(mult=c(0,0.15))) +
   labs(title="Top 15 Genres on Netflix", x=NULL, y="Number of Titles") +
-  theme_minimal(base_size=13) +
-  theme(plot.title=element_text(face="bold",size=17,color="#E50914"),
+  theme_minimal(base_size=12) +
+  theme(plot.title=element_text(face="bold",size=16,color="#E50914"),
         panel.grid.major.y=element_blank())
 ```
+
+**Conclusion:**
+Drama and Comedy are the most dominant genres on Netflix. This reflects
+global audience preference for emotionally engaging and light-hearted content.
+
+---
+
+## 7. Content Added Per Year
 ```{r}
 year_df <- titles %>%
   filter(!is.na(release_year), release_year>=2000, release_year<=2023) %>%
   count(release_year, type)
 
 ggplot(year_df, aes(x=release_year, y=n, color=type, group=type)) +
-  geom_line(linewidth=1.3) +
-  geom_point(size=2.5) +
+  geom_line(linewidth=1.2) +
+  geom_point(size=2) +
   scale_color_manual(values=c("MOVIE"="#E50914","SHOW"="#F5A623")) +
   scale_x_continuous(breaks=seq(2000,2023,2)) +
   labs(title="Content Released Per Year (2000-2023)",
        x="Year", y="Number of Titles", color="Type") +
-  theme_minimal(base_size=13) +
-  theme(plot.title=element_text(face="bold",size=17,color="#E50914"),
+  theme_minimal(base_size=12) +
+  theme(plot.title=element_text(face="bold",size=16,color="#E50914"),
         legend.position="top")
 ```
+
+**Conclusion:**
+Netflix content production increased sharply after 2015. This reflects
+Netflix's global expansion strategy and heavy investment in original content.
+
+---
+
+## 8. Top Countries
 ```{r}
 countries_df <- titles %>%
   filter(!is.na(production_countries), production_countries!="") %>%
   separate_rows(production_countries, sep=",") %>%
-  mutate(production_countries=stringr::str_trim(production_countries)) %>%
+  mutate(production_countries=str_trim(production_countries)) %>%
   filter(production_countries!="") %>%
   count(production_countries, sort=TRUE) %>%
   slice_head(n=15)
 
 ggplot(countries_df, aes(x=reorder(production_countries,n), y=n, fill=n)) +
-  geom_col(width=0.7, show.legend=FALSE) +
-  geom_text(aes(label=n), hjust=-0.15, size=4, fontface="bold") +
+  geom_col(show.legend=FALSE) +
+  geom_text(aes(label=n), hjust=-0.15, size=3.5, fontface="bold") +
   coord_flip() +
   scale_fill_gradient(low="#FFC3C3", high="#E50914") +
   scale_y_continuous(expand=expansion(mult=c(0,0.15))) +
   labs(title="Top 15 Countries Producing Netflix Content", x=NULL, y="Titles") +
-  theme_minimal(base_size=13) +
-  theme(plot.title=element_text(face="bold",size=17,color="#E50914"),
+  theme_minimal(base_size=12) +
+  theme(plot.title=element_text(face="bold",size=16,color="#E50914"),
         panel.grid.major.y=element_blank())
 ```
+
+**Conclusion:**
+The United States produces the most Netflix content by far, followed by
+India and the UK. This highlights Netflix's dominance in English-language
+and South Asian markets.
+
+---
+
+## 9. IMDB Score Distribution
 ```{r}
 imdb_df <- titles %>% filter(!is.na(imdb_score), imdb_score>0)
 
@@ -116,11 +202,22 @@ ggplot(imdb_df, aes(x=imdb_score, fill=type)) +
              color="yellow", linetype="dashed", linewidth=1) +
   scale_fill_manual(values=c("MOVIE"="#E50914","SHOW"="#F5A623")) +
   scale_x_continuous(breaks=1:10) +
-  labs(title="IMDB Score Distribution", x="IMDB Score", y="Count", fill="Type") +
-  theme_minimal(base_size=13) +
-  theme(plot.title=element_text(face="bold",size=17,color="#E50914"),
+  labs(title="IMDB Score Distribution",
+       subtitle="Yellow dashed line = median score",
+       x="IMDB Score", y="Count", fill="Type") +
+  theme_minimal(base_size=12) +
+  theme(plot.title=element_text(face="bold",size=16,color="#E50914"),
         legend.position="top")
 ```
+
+**Conclusion:**
+Most Netflix titles score between 6.0 and 7.0 on IMDB with a median around
+6.5. This suggests Netflix hosts mostly average to good quality content
+rather than exclusively critically acclaimed titles.
+
+---
+
+## 10. Top Actors & Directors
 ```{r}
 top_actors <- credits %>%
   filter(role=="ACTOR", !is.na(name)) %>%
@@ -128,16 +225,20 @@ top_actors <- credits %>%
   slice_head(n=15)
 
 ggplot(top_actors, aes(x=reorder(name,n), y=n, fill=n)) +
-  geom_col(width=0.7, show.legend=FALSE) +
-  geom_text(aes(label=n), hjust=-0.2, size=4, fontface="bold") +
+  geom_col(show.legend=FALSE) +
+  geom_text(aes(label=n), hjust=-0.2, size=3.5, fontface="bold") +
   coord_flip() +
   scale_fill_gradient(low="#FFC3C3", high="#E50914") +
   scale_y_continuous(expand=expansion(mult=c(0,0.15))) +
   labs(title="Top 15 Most Featured Actors", x=NULL, y="Titles") +
-  theme_minimal(base_size=13) +
-  theme(plot.title=element_text(face="bold",size=17,color="#E50914"),
+  theme_minimal(base_size=12) +
+  theme(plot.title=element_text(face="bold",size=16,color="#E50914"),
         panel.grid.major.y=element_blank())
 ```
+
+**Conclusion:**
+A small group of actors appear across many Netflix titles, suggesting
+Netflix repeatedly works with familiar and trusted talent.
 ```{r}
 top_directors <- credits %>%
   filter(role=="DIRECTOR", !is.na(name)) %>%
@@ -145,41 +246,69 @@ top_directors <- credits %>%
   slice_head(n=15)
 
 ggplot(top_directors, aes(x=reorder(name,n), y=n, fill=n)) +
-  geom_col(width=0.7, show.legend=FALSE) +
-  geom_text(aes(label=n), hjust=-0.2, size=4, fontface="bold") +
+  geom_col(show.legend=FALSE) +
+  geom_text(aes(label=n), hjust=-0.2, size=3.5, fontface="bold") +
   coord_flip() +
   scale_fill_gradient(low="#FFD580", high="#F5A623") +
   scale_y_continuous(expand=expansion(mult=c(0,0.15))) +
   labs(title="Top 15 Most Active Directors", x=NULL, y="Titles") +
-  theme_minimal(base_size=13) +
-  theme(plot.title=element_text(face="bold",size=17,color="#E50914"),
+  theme_minimal(base_size=12) +
+  theme(plot.title=element_text(face="bold",size=16,color="#E50914"),
         panel.grid.major.y=element_blank())
 ```
+
+**Conclusion:**
+A handful of directors are responsible for a large share of Netflix content,
+showing Netflix's preference for working with proven and prolific filmmakers.
+
+---
+
+## 11. Age Rating Breakdown
 ```{r}
 rating_df <- titles %>%
-  filter(!is.na(age_certification), age_certification!="") %>%
+  filter(!is.na(age_certification), age_certification!="Not Rated") %>%
   count(age_certification, type)
 
 ggplot(rating_df, aes(x=reorder(age_certification,n), y=n, fill=type)) +
-  geom_col(position="dodge", width=0.65) +
-  geom_text(aes(label=n), position=position_dodge(width=0.65),
+  geom_col(position="dodge") +
+  geom_text(aes(label=n), position=position_dodge(width=0.9),
             vjust=-0.4, size=3.5, fontface="bold") +
   scale_fill_manual(values=c("MOVIE"="#E50914","SHOW"="#F5A623")) +
   scale_y_continuous(expand=expansion(mult=c(0,0.15))) +
   labs(title="Content by Age Rating", x="Rating", y="Titles", fill="Type") +
-  theme_minimal(base_size=13) +
-  theme(plot.title=element_text(face="bold",size=17,color="#E50914"),
+  theme_minimal(base_size=12) +
+  theme(plot.title=element_text(face="bold",size=16,color="#E50914"),
         legend.position="top")
 ```
+
+**Conclusion:**
+TV-MA and R ratings dominate Netflix, confirming that the platform primarily
+targets adult audiences while still offering family-friendly content.
+
+---
+
+## 12. Regression Model
 ```{r}
-titles %>%
-  group_by(type) %>%
-  summarise(
-    Count       = n(),
-    Avg_IMDB    = round(mean(imdb_score, na.rm=TRUE), 2),
-    Median_IMDB = round(median(imdb_score, na.rm=TRUE), 2),
-    Earliest    = min(release_year, na.rm=TRUE),
-    Latest      = max(release_year, na.rm=TRUE)
-  ) %>%
-  knitr::kable(caption="Summary by Content Type")
+model <- lm(imdb_score ~ release_year, data=titles)
+summary(model)
+
+ggplot(titles %>% filter(!is.na(imdb_score), !is.na(release_year)),
+       aes(x=release_year, y=imdb_score)) +
+  geom_point(alpha=0.2, color="#E50914") +
+  geom_smooth(method="lm", color="yellow", linewidth=1.2) +
+  labs(title="Regression: IMDB Score vs Release Year",
+       x="Release Year", y="IMDB Score") +
+  theme_minimal(base_size=12) +
+  theme(plot.title=element_text(face="bold",size=16,color="#E50914"))
 ```
+
+**Conclusion:**
+The regression model shows the relationship between release year and IMDB
+score. A negative slope means newer content tends to score slightly lower,
+possibly due to the large volume of average content added in recent years.
+Release year alone is a weak predictor of quality, meaning other factors
+like genre and production budget matter more.
+
+---
+
+*Analysis by Veni_Neha_Minha_Niyukta | Data: Netflix Titles by Victor Soirro (Kaggle)*
